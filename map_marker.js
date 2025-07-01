@@ -1,120 +1,124 @@
+// Haupt-Logik für DS Kartenmarkierung V10.0
+// Diese Datei wird von Tampermonkey geladen.
 (function(win, $) {
     'use strict';
 
-    class FinalMapMarker {
+    class HotkeyMapMarker {
         constructor(win, $) {
             this.win = win;
             this.$ = $;
             this.world = win.game_data.world;
-            this.STORAGE_KEY = `final_map_markers_${this.world}`;
+            this.STORAGE_KEY = `hotkey_textbox_markers_v10_${this.world}`;
             this.markers = {};
+            this.kordPattern = /\((\d{3}\|\d{3})\)/; // Zum Auslesen der Koordinaten aus dem Tooltip
         }
 
         async init() {
-            console.log("Karten-Skript V3.0 (Extern): Initialisiere...");
+            console.log("Karten-Skript V10.0 (Extern): Initialisiere...");
             this.injectStyles();
-            this.createUI();
-            this.setupEventListeners();
-            this.markers = await this.loadMarkers();
-            this.win.$(this.win.document).on('map_loaded', () => this.drawAllMarkers());
-            this.drawAllMarkers();
-            console.log("Karten-Skript V3.0 (Extern): System läuft.");
+            this.markers = await this.loadMarkersFromStorage();
+            this.installMapHook();
+            this.setupKeyListener();
+            this.win.TWMap.reload();
+            console.log("Karten-Skript V10.0 (Extern): System aktiv. Wähle ein Dorf und drücke 'n'.");
         }
 
-        async loadMarkers() {
+        async loadMarkersFromStorage() {
             const data = localStorage.getItem(this.STORAGE_KEY);
             return data ? JSON.parse(data) : {};
         }
 
-        async saveMarkers() {
+        async saveMarkersToStorage() {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.markers));
         }
 
         injectStyles() {
             this.$('head').append(`
                 <style type="text/css">
-                    .final-marker {
-                        position: absolute;
-                        z-index: 1001;
-                        background: rgba(10, 10, 10, 0.85);
-                        border: 1px solid #c19649;
-                        color: white;
-                        padding: 4px 8px;
-                        border-radius: 4px;
-                        font-size: 12px;
-                        font-family: 'Trebuchet MS', sans-serif;
-                        white-space: nowrap;
-                        pointer-events: none;
-                        transform: translateX(-50%) translateY(-35px);
+                    .hotkey-text-marker {
+                        position: absolute; z-index: 99;
+                        background: rgba(10, 10, 10, 0.9); border: 2px solid red;
+                        color: white; padding: 4px 8px; border-radius: 4px;
+                        font: bold 12px Verdana, sans-serif; white-space: nowrap;
+                        pointer-events: none; transform: translateX(-50%) translateY(-38px);
+                        text-shadow: 1px 1px 2px black;
                     }
-                    #marker-ui-container {
-                        position: fixed; top: 120px; right: 5px; z-index: 10001;
-                        background: #f4e4bc; border: 2px solid #7d510f;
-                        padding: 10px; width: 220px;
+                    #marker-input-container {
+                        padding: 5px; border-top: 1px solid #c19649; margin-top: 5px;
                     }
+                    #marker-input-field { width: 95%; margin-bottom: 5px; }
                 </style>
             `);
         }
 
-        createUI() {
-            if (this.$('#marker-ui-container').length > 0) return;
-            const ui = this.$(`<div id="marker-ui-container"><h4>Karten-Markierung</h4><label for="coords-input">Koordinaten:</label><div style="display:flex;"><input type="text" id="coords-input" placeholder="Dorf anklicken..." style="flex-grow:1;"><button id="goto-coord-btn" class="btn" style="margin-left:5px;">Go</button></div><label for="text-input" style="margin-top:5px;display:block;">Notiz:</label><input type="text" id="text-input" placeholder="z.B. Off-Dorf"><button id="save-marker-btn" class="btn" style="width:100%;margin-top:10px;">Speichern</button><p style="font-size:9px;text-align:center;margin-top:5px;">Zum Löschen, Notizfeld leer lassen.</p></div>`);
-            this.$('body').append(ui);
+        installMapHook() {
+            this.win.TWMap.mapHandler.originalSpawnSector = this.win.TWMap.mapHandler.spawnSector;
+            this.win.TWMap.mapHandler.spawnSector = (sector, a) => {
+                this.win.TWMap.mapHandler.originalSpawnSector(sector, a);
+                this.drawAllMarkers();
+            };
         }
-        
+
         drawAllMarkers() {
-            this.$('.final-marker').remove();
-            for (const coords in this.markers) {
-                const text = this.markers[coords];
-                if (!text) continue;
-                const [x, y] = coords.split('|').map(Number);
-                const pixelPos = this.win.TWMap.map.coordToPixel(x, y);
-                if (this.win.TWMap.map.isOnScreen(pixelPos.x, pixelPos.y)) {
-                    this.$('<div>').addClass('final-marker').text(text)
-                        .css({ top: pixelPos.top, left: pixelPos.left + (this.win.TWMap.tileSize[0] / 2) })
-                        .appendTo('#map');
+            this.$('.hotkey-text-marker').remove();
+            for (const villageId in this.markers) {
+                const village = this.win.TWMap.villages[villageId];
+                if (village && village.display.visible) {
+                    const villageElement = this.$(`#map_village_${villageId}`);
+                    if (villageElement.length > 0) {
+                        const style = villageElement.get(0).style;
+                        this.$('<div>').addClass('hotkey-text-marker').text(this.markers[villageId])
+                            .css({ top: style.top, left: style.left }).insertBefore(villageElement);
+                    }
                 }
             }
         }
 
-        setupEventListeners() {
-            const $body = this.$('body');
-            $body.on('click', '#save-marker-btn', async (e) => {
-                e.preventDefault();
-                const coords = this.$('#coords-input').val();
-                const text = this.$('#text-input').val();
-                if (!coords || !coords.match(/^\d{1,3}\|\d{1,3}$/)) { alert("Ungültige Koordinaten."); return; }
-                if (text) {
-                    this.markers[coords] = text;
-                } else {
-                    delete this.markers[coords];
-                }
-                await this.saveMarkers();
-                this.drawAllMarkers();
-                this.$('#text-input').val('');
-            });
+        showInputBox(village) {
+            this.$('#marker-input-container').remove();
+            const currentText = this.markers[village.id] || '';
+            const inputBoxHtml = `<div id="marker-input-container" data-village-id="${village.id}"><input id="marker-input-field" type="text" value="${currentText}" placeholder="Notiz..."><button id="marker-save-btn" class="btn">Speichern</button></div>`;
+            this.$('#map_popup #info_content').append(inputBoxHtml);
+            this.$('#marker-input-field').focus().select();
+        }
 
-            $body.on('click', '#goto-coord-btn', (e) => {
-                e.preventDefault();
-                const coords = this.$('#coords-input').val().split('|');
-                if (coords.length === 2) this.win.TWMap.focus(parseInt(coords[0]), parseInt(coords[1]));
-            });
-
-            this.$('#map').on('click', 'div[id^="map_village_"]', (e) => {
-                e.preventDefault(); e.stopPropagation();
-                const villageId = e.currentTarget.id.replace('map_village_', '');
-                const villageData = this.win.TWMap.villages[villageId];
-                if (villageData) {
-                    const coords = `${villageData.x}|${villageData.y}`;
-                    this.$('#coords-input').val(coords);
-                    this.$('#text-input').val(this.markers[coords] || '').focus();
+        setupKeyListener() {
+            this.$(this.win.document).on('keypress', (e) => {
+                if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') return;
+                if (String.fromCharCode(e.which).toLowerCase() === 'n') {
+                    e.preventDefault();
+                    const village = this.getVillageFromTooltip();
+                    if (village) { this.showInputBox(village); }
                 }
             });
+
+            this.$('body').on('click', '#marker-save-btn', async (e) => {
+                e.preventDefault();
+                const container = this.$('#marker-input-container');
+                const villageId = container.data('village-id');
+                const text = this.$('#marker-input-field').val();
+                if (text) { this.markers[villageId] = text; } else { delete this.markers[villageId]; }
+                await this.saveMarkersToStorage();
+                this.win.TWMap.reload();
+                container.remove();
+            });
+        }
+
+        getVillageFromTooltip() {
+            if (this.$('#map_popup').is(':visible')) {
+                const text = this.$("#info_content tr th").text();
+                const match = text.match(this.kordPattern);
+                if (match) {
+                    const coords = match[1].replace('|', '_');
+                    const villageId = this.win.TWMap.villageparts[coords];
+                    return this.win.TWMap.villages[villageId];
+                }
+            }
+            return null;
         }
     }
 
-    // Skript starten
-    const MapMarkerInstance = new MapMarker(window, window.jQuery);
-    MapMarkerInstance.init();
+    // Das Skript wird erst gestartet, wenn diese Datei vom Lader ausgeführt wird.
+    new HotkeyMapMarker(window, window.jQuery).init();
 
 })(unsafeWindow, unsafeWindow.jQuery);
