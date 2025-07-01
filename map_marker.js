@@ -1,5 +1,3 @@
-// Haupt-Logik für DS Kartenmarkierung V10.0
-// Diese Datei wird von Tampermonkey geladen.
 (function(win, $) {
     'use strict';
 
@@ -8,19 +6,19 @@
             this.win = win;
             this.$ = $;
             this.world = win.game_data.world;
-            this.STORAGE_KEY = `hotkey_textbox_markers_v10_${this.world}`;
+            this.STORAGE_KEY = `hotkey_textbox_markers_v11_${this.world}`;
             this.markers = {};
-            this.kordPattern = /\((\d{3}\|\d{3})\)/; // Zum Auslesen der Koordinaten aus dem Tooltip
+            this.kordPattern = /\((\d{3}\|\d{3})\)/;
         }
 
         async init() {
-            console.log("Karten-Skript V10.0 (Extern): Initialisiere...");
+            console.log("Karten-Skript V11.1 (Extern): Initialisiere im korrekten Kontext...");
             this.injectStyles();
             this.markers = await this.loadMarkersFromStorage();
             this.installMapHook();
             this.setupKeyListener();
             this.win.TWMap.reload();
-            console.log("Karten-Skript V10.0 (Extern): System aktiv. Wähle ein Dorf und drücke 'n'.");
+            console.log("Karten-Skript V11.1 (Extern): System aktiv. Wähle ein Dorf und drücke 'n'.");
         }
 
         async loadMarkersFromStorage() {
@@ -68,7 +66,8 @@
                     if (villageElement.length > 0) {
                         const style = villageElement.get(0).style;
                         this.$('<div>').addClass('hotkey-text-marker').text(this.markers[villageId])
-                            .css({ top: style.top, left: style.left }).insertBefore(villageElement);
+                            .css({ top: style.top, left: style.left })
+                            .insertBefore(villageElement);
                     }
                 }
             }
@@ -84,7 +83,7 @@
 
         setupKeyListener() {
             this.$(this.win.document).on('keypress', (e) => {
-                if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') return;
+                if (e.target.tagName.toLowerCase().match(/input|textarea/)) return;
                 if (String.fromCharCode(e.which).toLowerCase() === 'n') {
                     e.preventDefault();
                     const village = this.getVillageFromTooltip();
@@ -103,22 +102,20 @@
                 container.remove();
             });
         }
-
+        
         getVillageFromTooltip() {
             if (this.$('#map_popup').is(':visible')) {
                 const text = this.$("#info_content tr th").text();
                 const match = text.match(this.kordPattern);
                 if (match) {
                     const coords = match[1].replace('|', '_');
-                    const villageId = this.win.TWMap.villageparts[coords];
-                    return this.win.TWMap.villages[villageId];
+                    return this.win.TWMap.villages[this.win.TWMap.villageparts[coords]];
                 }
             }
             return null;
         }
     }
 
-    // Das Skript wird erst gestartet, wenn diese Datei vom Lader ausgeführt wird.
     new HotkeyMapMarker(window, window.jQuery).init();
 
-})(unsafeWindow, unsafeWindow.jQuery);
+})(window, window.jQuery);
